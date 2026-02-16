@@ -11,13 +11,13 @@ A process manager. Define processes in `pm3.toml`, manage them with simple comma
 ### macOS / Linux
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/frectonz/pm3/releases/latest/download/pm3-installer.sh | sh
+curl -LsSf https://pm3.frectonz.et/instal.sh | sh
 ```
 
 ### Windows
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/frectonz/pm3/releases/latest/download/pm3-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://pm3.frectonz.et/instal.ps1 | iex"
 ```
 
 ## Quick Start

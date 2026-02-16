@@ -4,9 +4,9 @@ import { useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 
 const commands = {
-  unix: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/frectonz/pm3/releases/download/0.1.6/pm3-installer.sh | sh",
+  unix: "curl -LsSf https://pm3.frectonz.et/instal.sh | sh",
   windows:
-    'powershell -ExecutionPolicy ByPass -c "irm https://github.com/frectonz/pm3/releases/download/0.1.6/pm3-installer.ps1 | iex"',
+    'powershell -ExecutionPolicy ByPass -c "irm https://pm3.frectonz.et/instal.ps1 | iex"',
 } as const;
 
 type Tab = keyof typeof commands;
@@ -15,7 +15,7 @@ export function InstallCommand() {
   const [tab, setTab] = useState<Tab>("unix");
 
   return (
-    <div className="w-full max-w-4xl mb-8  border border-fd-border bg-fd-card p-4 text-left overflow-hidden">
+    <div className="w-full max-w-3xl mb-8  border border-fd-border bg-fd-card p-4 text-left overflow-hidden">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="w-3 h-3  bg-red-500" />
