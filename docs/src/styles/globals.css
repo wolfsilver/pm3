@@ -87,3 +87,8 @@ body {
   padding: 1rem 0;
   margin: 0;
 }
+
+/* Config builder TOML preview: use Shiki dark tokens in dark mode */
+.dark .toml-preview pre.shiki span {
+  color: var(--shiki-dark) !important;
+}
