@@ -45,8 +45,8 @@ When a process exceeds the memory limit:
 4. Runs the `post_stop` hook (if configured).
 5. Respawns the process.
 
-<Callout type="warn">
-Memory monitoring uses the `ps` command to read RSS and is only available on Unix systems (macOS and Linux). It is not supported on Windows.
+<Callout type="info">
+Memory monitoring is supported on macOS, Linux, and Windows.
 </Callout>
 
 ## Example

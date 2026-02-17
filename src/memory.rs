@@ -63,8 +63,9 @@ pub async fn read_rss_bytes(pid: u32) -> Option<u64> {
 }
 
 #[cfg(windows)]
-pub async fn read_rss_bytes(_pid: u32) -> Option<u64> {
-    None
+pub async fn read_rss_bytes(pid: u32) -> Option<u64> {
+    let (_cpu_time_100ns, rss_bytes) = read_windows_cpu_time_and_rss(pid)?;
+    Some(rss_bytes)
 }
 #[derive(Debug, Clone, Default)]
 pub struct ProcessStats {
@@ -95,8 +96,113 @@ pub async fn read_process_stats(pid: u32) -> Option<(f64, u64)> {
 }
 
 #[cfg(windows)]
-pub async fn read_process_stats(_pid: u32) -> Option<(f64, u64)> {
-    None
+pub async fn read_process_stats(pid: u32) -> Option<(f64, u64)> {
+    let (cpu_time_100ns, rss_bytes) = read_windows_cpu_time_and_rss(pid)?;
+    let now = std::time::Instant::now();
+
+    let samples = windows_cpu_samples();
+    let mut samples = samples.lock().ok()?;
+    let cpu_percent = if let Some(prev) = samples.get(&pid) {
+        let elapsed = now.duration_since(prev.at).as_secs_f64();
+        if elapsed > 0.0 && cpu_time_100ns >= prev.total_cpu_time_100ns {
+            let cpu_delta_100ns = cpu_time_100ns - prev.total_cpu_time_100ns;
+            let cpu_seconds = cpu_delta_100ns as f64 / 10_000_000.0;
+            (cpu_seconds / elapsed) * 100.0
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    samples.insert(
+        pid,
+        WindowsCpuSample {
+            total_cpu_time_100ns: cpu_time_100ns,
+            at: now,
+        },
+    );
+
+    Some((cpu_percent, rss_bytes))
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+struct WindowsCpuSample {
+    total_cpu_time_100ns: u64,
+    at: std::time::Instant,
+}
+
+#[cfg(windows)]
+fn windows_cpu_samples() -> &'static std::sync::Mutex<HashMap<u32, WindowsCpuSample>> {
+    static CPU_SAMPLES: std::sync::OnceLock<std::sync::Mutex<HashMap<u32, WindowsCpuSample>>> =
+        std::sync::OnceLock::new();
+    CPU_SAMPLES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+#[cfg(windows)]
+fn prune_windows_cpu_samples(alive_pids: impl IntoIterator<Item = u32>) {
+    let alive: std::collections::HashSet<u32> = alive_pids.into_iter().collect();
+    if let Ok(mut samples) = windows_cpu_samples().lock() {
+        samples.retain(|pid, _| alive.contains(pid));
+    }
+}
+
+#[cfg(windows)]
+fn read_windows_cpu_time_and_rss(pid: u32) -> Option<(u64, u64)> {
+    use std::mem::{size_of, zeroed};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows_sys::Win32::System::ProcessStatus::{
+        K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+
+        let mut creation_time: FILETIME = zeroed();
+        let mut exit_time: FILETIME = zeroed();
+        let mut kernel_time: FILETIME = zeroed();
+        let mut user_time: FILETIME = zeroed();
+        let got_times = GetProcessTimes(
+            handle,
+            &mut creation_time,
+            &mut exit_time,
+            &mut kernel_time,
+            &mut user_time,
+        );
+
+        let mut memory_counters: PROCESS_MEMORY_COUNTERS = zeroed();
+        memory_counters.cb = size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        let got_memory = K32GetProcessMemoryInfo(
+            handle,
+            &mut memory_counters,
+            size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        );
+
+        CloseHandle(handle);
+
+        if got_times == 0 || got_memory == 0 {
+            return None;
+        }
+
+        let kernel_100ns = filetime_to_u64(&kernel_time);
+        let user_100ns = filetime_to_u64(&user_time);
+        let total_cpu_time_100ns = kernel_100ns.saturating_add(user_100ns);
+        let rss_bytes = memory_counters.WorkingSetSize as u64;
+
+        Some((total_cpu_time_100ns, rss_bytes))
+    }
+}
+
+#[cfg(windows)]
+fn filetime_to_u64(ft: &windows_sys::Win32::Foundation::FILETIME) -> u64 {
+    ((ft.dwHighDateTime as u64) << 32) | (ft.dwLowDateTime as u64)
 }
 
 pub fn spawn_stats_collector(
@@ -130,6 +236,9 @@ pub fn spawn_stats_collector(
                     .filter_map(|(name, m)| m.pid.map(|pid| (name.clone(), pid)))
                     .collect()
             };
+
+            #[cfg(windows)]
+            prune_windows_cpu_samples(pids.iter().map(|(_, pid)| *pid));
 
             let mut new_cache = HashMap::new();
             for (_name, pid) in &pids {
