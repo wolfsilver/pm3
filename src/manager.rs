@@ -179,12 +179,21 @@ impl Manager {
                 let mut table = self.processes.write().await;
                 for name in level {
                     let mut old_restarts = None;
-                    if let Some(existing) = table.get(name) {
+                    if let Some(existing) = table.get_mut(name) {
                         match existing.status {
                             ProcessStatus::Stopped | ProcessStatus::Errored => {
                                 old_restarts = Some(existing.restarts);
                             }
-                            _ => continue,
+                            _ => {
+                                // If config changed, stop the old process and
+                                // restart with the new config.
+                                let config = subset_configs.get(name).unwrap();
+                                if existing.config != *config {
+                                    let _ = existing.graceful_stop().await;
+                                } else {
+                                    continue;
+                                }
+                            }
                         }
                     }
                     let config = subset_configs.get(name).unwrap().clone();
