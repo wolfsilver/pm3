@@ -216,8 +216,9 @@ impl ManagedProcess {
         let timeout_ms = self.config.kill_timeout.unwrap_or(DEFAULT_KILL_TIMEOUT_MS);
         let duration = Duration::from_millis(timeout_ms);
 
-        if let Err(e) = crate::sys::send_signal(raw_pid, signal) {
-            eprintln!("failed to send {signal_name} to pid {raw_pid}: {e}");
+        // Signal the entire process group so child processes are also stopped.
+        if let Err(e) = crate::sys::send_signal_to_group(raw_pid, signal) {
+            eprintln!("failed to send {signal_name} to process group {raw_pid}: {e}");
             if !crate::sys::is_pid_alive(raw_pid) {
                 self.pid = None;
                 self.status = ProcessStatus::Stopped;
@@ -229,8 +230,8 @@ impl ManagedProcess {
         let deadline = tokio::time::Instant::now() + duration;
         while crate::sys::is_pid_alive(raw_pid) {
             if tokio::time::Instant::now() >= deadline {
-                // Timeout — escalate to force kill
-                let _ = crate::sys::force_kill(raw_pid);
+                // Timeout — escalate to force kill the entire process group
+                let _ = crate::sys::force_kill_group(raw_pid);
                 // Brief wait for kill to take effect
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 break;
@@ -304,6 +305,11 @@ pub async fn spawn_process(
 
     let mut cmd = Command::new(&program);
     cmd.args(&args);
+
+    // Put each process in its own process group so that stop/kill
+    // can signal the entire tree (parent + children).
+    #[cfg(unix)]
+    cmd.process_group(0);
 
     if let Some(ref cwd) = config.cwd {
         cmd.current_dir(cwd);

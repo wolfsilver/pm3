@@ -113,6 +113,18 @@ mod platform {
         nix::sys::signal::kill(to_pid(pid)?, signal).map_err(io::Error::other)
     }
 
+    /// Send a signal to the entire process group led by `pid`.
+    pub fn send_signal_to_group(pid: u32, signal: Signal) -> io::Result<()> {
+        let raw = i32::try_from(pid).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("PID {pid} exceeds i32::MAX"),
+            )
+        })?;
+        let pgid = nix::unistd::Pid::from_raw(-raw);
+        nix::sys::signal::kill(pgid, signal).map_err(io::Error::other)
+    }
+
     pub fn is_pid_alive(pid: u32) -> bool {
         let Ok(pid) = to_pid(pid) else { return false };
         match nix::sys::signal::kill(pid, None) {
@@ -133,6 +145,11 @@ mod platform {
 
     pub fn force_kill(pid: u32) -> io::Result<()> {
         send_signal(pid, Signal::SIGKILL)
+    }
+
+    /// Force-kill the entire process group led by `pid`.
+    pub fn force_kill_group(pid: u32) -> io::Result<()> {
+        send_signal_to_group(pid, Signal::SIGKILL)
     }
 
     // -- IPC (async) --
@@ -235,6 +252,11 @@ mod platform {
         terminate_process(pid)
     }
 
+    /// On Windows, process groups work differently; fall back to individual signal.
+    pub fn send_signal_to_group(pid: u32, signal: Signal) -> io::Result<()> {
+        send_signal(pid, signal)
+    }
+
     pub fn is_pid_alive(pid: u32) -> bool {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Threading::{
@@ -260,6 +282,11 @@ mod platform {
 
     pub fn force_kill(pid: u32) -> io::Result<()> {
         terminate_process(pid)
+    }
+
+    /// On Windows, process groups work differently; fall back to individual kill.
+    pub fn force_kill_group(pid: u32) -> io::Result<()> {
+        force_kill(pid)
     }
 
     fn terminate_process(pid: u32) -> io::Result<()> {
