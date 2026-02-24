@@ -252,7 +252,7 @@ mod platform {
         terminate_process(pid)
     }
 
-    /// On Windows, process groups work differently; fall back to individual signal.
+    /// On Windows, fall back to individual signal (use `JobObject::terminate` instead).
     pub fn send_signal_to_group(pid: u32, signal: Signal) -> io::Result<()> {
         send_signal(pid, signal)
     }
@@ -284,7 +284,7 @@ mod platform {
         terminate_process(pid)
     }
 
-    /// On Windows, process groups work differently; fall back to individual kill.
+    /// On Windows, fall back to individual kill (use `JobObject::terminate` instead).
     pub fn force_kill_group(pid: u32) -> io::Result<()> {
         force_kill(pid)
     }
@@ -357,6 +357,105 @@ mod platform {
         let mut cmd = tokio::process::Command::new("cmd");
         cmd.arg("/C").arg(hook);
         cmd
+    }
+
+    // -- Job Object (process tree management) --
+
+    use windows_sys::Win32::Foundation::HANDLE;
+
+    /// Wraps a Windows Job Object so that a managed process and all its
+    /// children can be terminated together.
+    pub struct JobObject {
+        handle: HANDLE,
+    }
+
+    // SAFETY: The job object handle is only used for assign/terminate calls
+    // which are thread-safe Win32 operations.
+    unsafe impl Send for JobObject {}
+    unsafe impl Sync for JobObject {}
+
+    impl JobObject {
+        /// Create a new Job Object configured to kill all processes when
+        /// the handle is closed.
+        pub fn new() -> io::Result<Self> {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::System::JobObjects::{
+                CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+                SetInformationJobObject,
+            };
+
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if handle.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+                let result = SetInformationJobObject(
+                    handle,
+                    JobObjectExtendedLimitInformation,
+                    &info as *const _ as *const _,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+
+                if result == 0 {
+                    CloseHandle(handle);
+                    return Err(io::Error::last_os_error());
+                }
+
+                Ok(JobObject { handle })
+            }
+        }
+
+        /// Assign a process (by PID) to this job object.
+        pub fn assign_process(&self, pid: u32) -> io::Result<()> {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+            };
+
+            unsafe {
+                let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+                if process_handle.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+
+                let result = AssignProcessToJobObject(self.handle, process_handle);
+                CloseHandle(process_handle);
+
+                if result == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+
+                Ok(())
+            }
+        }
+
+        /// Terminate all processes in the job.
+        pub fn terminate(&self) -> io::Result<()> {
+            use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+
+            unsafe {
+                let result = TerminateJobObject(self.handle, 1);
+                if result == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            }
+        }
+    }
+
+    impl Drop for JobObject {
+        fn drop(&mut self) {
+            use windows_sys::Win32::Foundation::CloseHandle;
+            unsafe {
+                CloseHandle(self.handle);
+            }
+        }
     }
 }
 

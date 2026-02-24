@@ -754,6 +754,14 @@ impl Manager {
                             ProcessStatus::Online
                         };
 
+                        // On Windows, re-assign the restored process to a new Job Object
+                        #[cfg(windows)]
+                        let job_object = entry.pid.and_then(|p| {
+                            let job = crate::sys::JobObject::new().ok()?;
+                            job.assign_process(p).ok()?;
+                            Some(job)
+                        });
+
                         let managed = process::ManagedProcess {
                             name: name.clone(),
                             config: entry.config.clone(),
@@ -763,6 +771,8 @@ impl Manager {
                             restarts: entry.restarts,
                             log_broadcaster: log_tx,
                             monitor_shutdown: Some(monitor_tx),
+                            #[cfg(windows)]
+                            job_object,
                         };
 
                         table.insert(name.clone(), managed);

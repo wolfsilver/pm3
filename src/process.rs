@@ -149,6 +149,10 @@ pub struct ManagedProcess {
     pub restarts: u32,
     pub log_broadcaster: broadcast::Sender<LogEntry>,
     pub monitor_shutdown: Option<watch::Sender<bool>>,
+    /// On Windows, a Job Object that groups the process and its children
+    /// so they can all be terminated together.
+    #[cfg(windows)]
+    pub job_object: Option<crate::sys::JobObject>,
 }
 
 impl ManagedProcess {
@@ -232,6 +236,11 @@ impl ManagedProcess {
             if tokio::time::Instant::now() >= deadline {
                 // Timeout — escalate to force kill the entire process group
                 let _ = crate::sys::force_kill_group(raw_pid);
+                // On Windows, also terminate via the job object to catch all children
+                #[cfg(windows)]
+                if let Some(ref job) = self.job_object {
+                    let _ = job.terminate();
+                }
                 // Brief wait for kill to take effect
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 break;
@@ -347,6 +356,15 @@ pub async fn spawn_process(
     let mut child = cmd.spawn().map_err(ProcessError::SpawnFailed)?;
     let pid = child.id();
 
+    // On Windows, assign the child to a Job Object so that all its
+    // descendants can be terminated together on stop/kill.
+    #[cfg(windows)]
+    let job_object = pid.and_then(|p| {
+        let job = crate::sys::JobObject::new().ok()?;
+        job.assign_process(p).ok()?;
+        Some(job)
+    });
+
     let (log_tx, _) = broadcast::channel(1024);
     let (monitor_tx, _monitor_rx) = watch::channel(false);
 
@@ -427,6 +445,8 @@ pub async fn spawn_process(
         restarts: 0,
         log_broadcaster: log_tx,
         monitor_shutdown: Some(monitor_tx),
+        #[cfg(windows)]
+        job_object,
     };
 
     Ok((managed, child))
