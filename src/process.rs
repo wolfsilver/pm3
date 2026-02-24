@@ -36,9 +36,56 @@ pub enum ProcessError {
     ImmediateExit { exit_code: Option<i32> },
 }
 
+/// Parse a command string into a program name and arguments.
+///
+/// On Unix, uses POSIX shell word-splitting rules (via `shell_words`).
+/// On Windows, uses a simpler parser that treats backslashes as literal
+/// characters so that Windows paths (e.g. `C:\Users\...`) are preserved.
+#[cfg(unix)]
 pub fn parse_command(command: &str) -> Result<(String, Vec<String>), ProcessError> {
     let words = shell_words::split(command)
         .map_err(|e| ProcessError::InvalidCommand(format!("failed to parse: {e}")))?;
+
+    if words.is_empty() {
+        return Err(ProcessError::InvalidCommand("command is empty".to_string()));
+    }
+
+    let program = words[0].clone();
+    let args = words[1..].to_vec();
+    Ok((program, args))
+}
+
+/// Parse a command string into a program name and arguments (Windows version).
+///
+/// Splits on whitespace, respecting double-quoted segments.
+/// Backslashes are always treated as literal characters so that Windows
+/// paths like `C:\Users\alpha\node.exe` are not mangled.
+#[cfg(windows)]
+pub fn parse_command(command: &str) -> Result<(String, Vec<String>), ProcessError> {
+    let command = command.trim();
+    if command.is_empty() {
+        return Err(ProcessError::InvalidCommand("command is empty".to_string()));
+    }
+
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for c in command.chars() {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if !current.is_empty() {
+        words.push(current);
+    }
 
     if words.is_empty() {
         return Err(ProcessError::InvalidCommand("command is empty".to_string()));
@@ -634,11 +681,29 @@ mod tests {
         assert_eq!(args, vec!["-c", "echo hello"]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn test_parse_command_single_quotes() {
         let (prog, args) = parse_command("echo 'hello world'").unwrap();
         assert_eq!(prog, "echo");
         assert_eq!(args, vec!["hello world"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_parse_command_windows_backslash_path() {
+        let (prog, args) = parse_command(r"C:\Users\alpha\nvs\default\node.exe server.js").unwrap();
+        assert_eq!(prog, r"C:\Users\alpha\nvs\default\node.exe");
+        assert_eq!(args, vec!["server.js"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_parse_command_windows_quoted_path_with_spaces() {
+        let (prog, args) =
+            parse_command(r#""C:\Program Files\nodejs\node.exe" server.js"#).unwrap();
+        assert_eq!(prog, r"C:\Program Files\nodejs\node.exe");
+        assert_eq!(args, vec!["server.js"]);
     }
 
     #[test]
