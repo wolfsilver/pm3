@@ -10,11 +10,10 @@ use tokio::sync::{RwLock, watch};
 pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 
 pub fn debounce_duration(config: &ProcessConfig) -> Duration {
-    Duration::from_millis(
-        config
-            .watch_debounce
-            .unwrap_or(DEFAULT_DEBOUNCE_DURATION.as_millis() as u64),
-    )
+    config
+        .watch_debounce
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_DEBOUNCE_DURATION)
 }
 pub fn resolve_watch_path(config: &ProcessConfig) -> Option<PathBuf> {
     match config.watch.as_ref()? {
@@ -62,7 +61,7 @@ pub fn spawn_watcher(
         return;
     };
 
-    let debounce_duration = debounce_duration(&config);
+    let watch_debounce_duration = debounce_duration(&config);
     let ignore_patterns: Vec<String> = config.watch_ignore.clone().unwrap_or_default();
 
     tokio::spawn(async move {
@@ -119,7 +118,7 @@ pub fn spawn_watcher(
 
             // Debounce: wait configured duration, drain any further events
             tokio::select! {
-                _ = tokio::time::sleep(debounce_duration) => {}
+                _ = tokio::time::sleep(watch_debounce_duration) => {}
                 _ = shutdown_rx.changed() => {
                     if *shutdown_rx.borrow() {
                         return;
