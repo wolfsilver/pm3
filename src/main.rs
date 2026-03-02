@@ -120,10 +120,12 @@ fn command_to_request(command: Command) -> color_eyre::Result<Request> {
             name,
             lines,
             follow,
+            err,
         } => Ok(Request::Log {
             name,
             lines,
             follow,
+            err,
         }),
     }
 }
