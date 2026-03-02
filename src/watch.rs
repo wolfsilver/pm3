@@ -2,6 +2,7 @@ use crate::config::{ProcessConfig, Watch};
 use crate::paths::Paths;
 use crate::process::{self, ProcessTable};
 use crate::protocol::ProcessStatus;
+use notify::event::EventKind;
 use notify::{RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -50,6 +51,14 @@ fn should_ignore(path: &std::path::Path, ignore_patterns: &[String]) -> bool {
     }
     false
 }
+
+fn should_restart_for_event_kind(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) | EventKind::Any
+    )
+}
+
 pub fn spawn_watcher(
     name: String,
     config: ProcessConfig,
@@ -113,7 +122,11 @@ pub fn spawn_watcher(
             let mut triggering_event = first_event
                 .paths
                 .iter()
-                .find(|p| !p.is_dir() && !should_ignore(p, &ignore_patterns))
+                .find(|p| {
+                    should_restart_for_event_kind(&first_event.kind)
+                        && !p.is_dir()
+                        && !should_ignore(p, &ignore_patterns)
+                })
                 .cloned()
                 .map(|path| (path, format!("{:?}", first_event.kind)));
 
@@ -131,7 +144,10 @@ pub fn spawn_watcher(
             while let Ok(event) = rx.try_recv() {
                 if triggering_event.is_none() {
                     for path in &event.paths {
-                        if !path.is_dir() && !should_ignore(path, &ignore_patterns) {
+                        if should_restart_for_event_kind(&event.kind)
+                            && !path.is_dir()
+                            && !should_ignore(path, &ignore_patterns)
+                        {
                             triggering_event = Some((path.clone(), format!("{:?}", event.kind)));
                             break;
                         }
@@ -357,5 +373,16 @@ mod tests {
 
         config.watch_debounce = Some(1200);
         assert_eq!(debounce_duration(&config), Duration::from_millis(1200));
+    }
+
+    #[test]
+    fn test_should_restart_for_event_kind() {
+        use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
+
+        assert!(should_restart_for_event_kind(&EventKind::Create(CreateKind::Any)));
+        assert!(should_restart_for_event_kind(&EventKind::Modify(ModifyKind::Any)));
+        assert!(should_restart_for_event_kind(&EventKind::Remove(RemoveKind::Any)));
+        assert!(should_restart_for_event_kind(&EventKind::Any));
+        assert!(!should_restart_for_event_kind(&EventKind::Access(AccessKind::Any)));
     }
 }
