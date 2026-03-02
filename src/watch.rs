@@ -110,11 +110,12 @@ pub fn spawn_watcher(
             // Skip directory paths — on macOS, FSEvents fires events for parent
             // directories when child files change, and those parent paths may not
             // contain the ignored component.
-            let mut triggering_path = first_event
+            let mut triggering_event = first_event
                 .paths
                 .iter()
                 .find(|p| !p.is_dir() && !should_ignore(p, &ignore_patterns))
-                .cloned();
+                .cloned()
+                .map(|path| (path, format!("{:?}", first_event.kind)));
 
             // Debounce: wait configured duration, drain any further events
             tokio::select! {
@@ -128,17 +129,17 @@ pub fn spawn_watcher(
 
             // Drain buffered events during debounce
             while let Ok(event) = rx.try_recv() {
-                if triggering_path.is_none() {
+                if triggering_event.is_none() {
                     for path in &event.paths {
                         if !path.is_dir() && !should_ignore(path, &ignore_patterns) {
-                            triggering_path = Some(path.clone());
+                            triggering_event = Some((path.clone(), format!("{:?}", event.kind)));
                             break;
                         }
                     }
                 }
             }
 
-            let Some(triggering_path) = triggering_path else {
+            let Some((triggering_path, triggering_event_kind)) = triggering_event else {
                 continue;
             };
 
@@ -162,9 +163,10 @@ pub fn spawn_watcher(
             }
 
             eprintln!(
-                "file change detected for '{}' at '{}', restarting",
+                "file change detected for '{}' at '{}' (event: {}), restarting",
                 name,
-                triggering_path.display()
+                triggering_path.display(),
+                triggering_event_kind
             );
 
             // Graceful stop
