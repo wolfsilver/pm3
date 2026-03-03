@@ -306,7 +306,7 @@ function TomlPreview({ code }: { code: string }) {
         </button>
       </div>
       <div
-        className="toml-preview text-sm overflow-x-auto min-h-[200px]"
+        className="toml-preview px-4 text-sm overflow-x-auto min-h-[200px]"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>
