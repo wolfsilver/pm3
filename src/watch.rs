@@ -7,7 +7,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, watch};
-pub const DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
+pub const DEFAULT_DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
+
+pub fn debounce_duration(config: &ProcessConfig) -> Duration {
+    config
+        .watch_debounce
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_DEBOUNCE_DURATION)
+}
 pub fn resolve_watch_path(config: &ProcessConfig) -> Option<PathBuf> {
     match config.watch.as_ref()? {
         Watch::Enabled(false) => None,
@@ -54,6 +61,7 @@ pub fn spawn_watcher(
         return;
     };
 
+    let watch_debounce_duration = debounce_duration(&config);
     let ignore_patterns: Vec<String> = config.watch_ignore.clone().unwrap_or_default();
 
     tokio::spawn(async move {
@@ -107,9 +115,9 @@ pub fn spawn_watcher(
                 .iter()
                 .any(|p| !p.is_dir() && !should_ignore(p, &ignore_patterns));
 
-            // Debounce: wait DEBOUNCE_DURATION, drain any further events
+            // Debounce: wait configured duration, drain any further events
             tokio::select! {
-                _ = tokio::time::sleep(DEBOUNCE_DURATION) => {}
+                _ = tokio::time::sleep(watch_debounce_duration) => {}
                 _ = shutdown_rx.changed() => {
                     if *shutdown_rx.borrow() {
                         return;
@@ -225,6 +233,7 @@ mod tests {
             stop_exit_codes: None,
             watch: None,
             watch_ignore: None,
+            watch_debounce: None,
             depends_on: None,
             restart: None,
             group: None,
@@ -332,5 +341,14 @@ mod tests {
                 "logs".to_string()
             ]
         ));
+    }
+
+    #[test]
+    fn test_debounce_duration_default_and_custom() {
+        let mut config = base_config();
+        assert_eq!(debounce_duration(&config), DEFAULT_DEBOUNCE_DURATION);
+
+        config.watch_debounce = Some(1200);
+        assert_eq!(debounce_duration(&config), Duration::from_millis(1200));
     }
 }
