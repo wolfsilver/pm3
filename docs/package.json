@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "waku dev",
     "generate:og": "tsx scripts/generate-og.tsx",
-    "build": "pnpm generate:og && waku build",
+    "generate:search": "tsx scripts/generate-search-index.ts",
+    "build": "pnpm generate:og && pnpm generate:search && waku build",
     "start": "waku start",
     "types:check": "fumadocs-mdx && tsc --noEmit",
     "postinstall": "fumadocs-mdx",
