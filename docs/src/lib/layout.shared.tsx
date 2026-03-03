@@ -10,6 +10,20 @@ export function baseOptions(): BaseLayoutProps {
         </span>
       ),
     },
+    links: [
+      {
+        text: "Documentation",
+        url: "/docs",
+        active: "nested-url",
+        on: "nav",
+      },
+      {
+        text: "Builder",
+        url: "/config-builder",
+        active: "url",
+        on: "nav",
+      },
+    ],
     githubUrl: "https://github.com/frectonz/pm3",
   };
 }

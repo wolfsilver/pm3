@@ -81,11 +81,70 @@ body {
   border-radius: 0 !important;
 }
 
+/* Home hero backdrop and motion */
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.home-hero-install-fade {
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 3rem;
+  background: linear-gradient(to right, transparent, var(--color-fd-card));
+}
+
+.home-hero-divider {
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--color-fd-border),
+    transparent
+  );
+}
+
+.hero-copy {
+  animation: hero-rise 500ms ease-out both;
+}
+
+.hero-panel {
+  animation: hero-rise 650ms 120ms ease-out both;
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-copy,
+  .hero-panel {
+    animation: none;
+  }
+}
+
 /* Config builder TOML preview: override shiki defaults */
 .toml-preview pre.shiki {
   background: transparent !important;
-  padding: 1rem 0;
-  margin: 0;
+  padding: 1rem 0 !important;
+  margin: 0 !important;
+  --padding-left: 0px !important;
+  --padding-right: 0px !important;
+}
+
+.toml-preview pre.shiki .line {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 /* Config builder TOML preview: use Shiki dark tokens in dark mode */

@@ -1,7 +1,8 @@
-import { ArrowRight, Wrench } from "lucide-react";
+import { ArrowRight, Github } from "lucide-react";
+import { codeToHtml } from "shiki";
 import { Link } from "waku";
 import { AsciinemaPlayer } from "@/components/asciinema-player";
-import { InstallCommand } from "@/components/install-command";
+import { CopyButton } from "@/components/copy-button";
 
 const features = [
   {
@@ -37,15 +38,18 @@ command = "node worker.js"
 max_memory = "512M"
 cron_restart = "0 3 * * *"`;
 
-const exampleOutput = `┌────────┬───────┬───────┬────────┬──────┬──────┬────────┬──────────┐
-│ name   │ group │ pid   │ status │ cpu  │ mem  │ uptime │ restarts │
-├────────┼───────┼───────┼────────┼──────┼──────┼────────┼──────────┤
-│ web    │ -     │ 42150 │ online │ 1.2% │ 5.2M │ 2m 13s │ 0        │
-│ api    │ -     │ 42153 │ online │ 0.8% │ 3.1M │ 2m 10s │ 0        │
-│ worker │ -     │ 42156 │ online │ 0.5% │ 2.8M │ 2m 10s │ 1        │
-└────────┴───────┴───────┴────────┴──────┴──────┴────────┴──────────┘`;
+const installCommand = "curl -LsSf https://pm3.frectonz.et/instal.sh | sh";
+const releaseTag = "v0.1.7";
+const inlineCodeClass =
+  "border border-fd-border bg-fd-card/80 px-1.5 py-0.5 font-mono text-[0.9em] text-fd-foreground";
+const quickStartCommand = "pm3 start";
 
-export default function Home() {
+export default async function Home() {
+  const highlightedToml = await codeToHtml(exampleToml, {
+    lang: "toml",
+    themes: { light: "github-light", dark: "github-dark" },
+  });
+
   return (
     <div className="flex flex-col min-h-screen">
       <title>pm3 - A modern process manager</title>
@@ -55,30 +59,91 @@ export default function Home() {
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:image" content="/og/home.png" />
       {/* Hero */}
-      <section className="flex flex-col items-center justify-center px-4 py-24 md:py-32 text-center">
-        <h1 className="font-mono font-bold text-5xl md:text-7xl mb-4">pm3</h1>
-        <p className="font-mono text-fd-muted-foreground text-lg md:text-xl mb-8 max-w-lg">
-          A modern process manager.
-        </p>
+      <section className="home-hero border-b border-fd-border">
+        <div className="relative mx-auto max-w-6xl px-6 pt-24 pb-20 sm:pt-32 sm:pb-28">
+          <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <div className="hero-copy">
+              <a
+                href="https://github.com/frectonz/pm3/releases"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mb-10 inline-flex items-center gap-2 border border-fd-border bg-fd-card/80 px-3 py-1 text-xs text-fd-muted-foreground backdrop-blur-sm transition-colors hover:text-fd-foreground"
+              >
+                <span className="h-1.5 w-1.5 bg-fd-primary" />
+                {releaseTag}
+                <ArrowRight className="h-3 w-3" />
+              </a>
 
-        <InstallCommand />
+              <h1 className="mb-4 font-mono text-5xl font-black tracking-tighter text-fd-foreground sm:text-6xl md:text-7xl lg:text-8xl">
+                pm3
+              </h1>
+              <p className="mb-6 font-mono text-lg text-fd-primary sm:text-xl md:text-2xl">
+                Define once. Start everything.
+              </p>
+              <p className="mb-8 max-w-lg text-base leading-relaxed text-fd-muted-foreground sm:text-lg">
+                A process manager that keeps your services predictable. Put your
+                stack in <code className={inlineCodeClass}>pm3.toml</code>, boot
+                with one command, and watch health, restarts, memory, and logs
+                in one TUI.
+              </p>
 
-        <div className="flex gap-4 flex-wrap justify-center">
-          <Link
-            to="/docs/quick-start"
-            className="flex items-center gap-2 px-6 py-3 bg-fd-primary text-fd-primary-foreground font-medium text-sm"
-          >
-            Get Started
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-          <Link
-            to="/config-builder"
-            className="flex items-center gap-2 px-6 py-3 border border-fd-border text-fd-foreground font-medium text-sm hover:bg-fd-accent transition-colors"
-          >
-            <Wrench className="w-4 h-4" />
-            Config Builder
-          </Link>
+              <div className="mb-8 flex flex-wrap gap-3">
+                <Link
+                  to="/docs/quick-start"
+                  className="group inline-flex items-center gap-2 bg-fd-primary px-6 py-2.5 text-sm font-semibold text-fd-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  Get Started
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+                <a
+                  href="https://github.com/frectonz/pm3"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 border border-fd-border px-6 py-2.5 text-sm font-semibold text-fd-muted-foreground transition-colors hover:border-fd-foreground/30 hover:text-fd-foreground"
+                >
+                  <Github className="h-4 w-4" />
+                  GitHub
+                </a>
+              </div>
+
+              <div className="max-w-2xl overflow-hidden border border-fd-border bg-fd-card/80 px-4 py-2.5 backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                  <span className="flex-none font-mono text-xs text-fd-muted-foreground">
+                    $
+                  </span>
+                  <div className="relative min-w-0 flex-1">
+                    <code className="block overflow-x-auto whitespace-nowrap font-mono text-xs text-fd-muted-foreground">
+                      {installCommand}
+                    </code>
+                    <div className="home-hero-install-fade" />
+                  </div>
+                  <div className="flex-none">
+                    <CopyButton text={installCommand} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hero-panel lg:translate-y-8 lg:translate-x-4">
+              <div className="overflow-hidden border border-fd-border bg-fd-card/90 shadow-2xl shadow-black/10 dark:shadow-black/40">
+                <div className="flex items-center gap-2.5 border-b border-fd-border bg-fd-muted/60 px-4 py-2.5">
+                  <span className="h-2.5 w-2.5 bg-red-500" />
+                  <span className="h-2.5 w-2.5 bg-yellow-500" />
+                  <span className="h-2.5 w-2.5 bg-green-500" />
+                  <span className="text-[11px] font-mono text-fd-muted-foreground">
+                    pm3.toml
+                  </span>
+                </div>
+                <div
+                  className="toml-preview overflow-x-auto px-5 text-[13px] leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: highlightedToml }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
+
+        <div className="home-hero-divider h-px" />
       </section>
 
       {/* Demo */}
@@ -105,29 +170,54 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Quick Example */}
-      <section className="px-4 py-16 max-w-5xl mx-auto w-full">
-        <h2 className="font-mono font-bold text-2xl md:text-3xl text-center mb-8">
-          Define. Start. Monitor.
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className=" border border-fd-border bg-fd-card overflow-hidden">
-            <div className="px-4 py-2 border-b border-fd-border text-xs font-mono text-fd-muted-foreground">
-              pm3.toml
+      {/* Quick Start */}
+      <section className="px-4 py-16 max-w-3xl mx-auto w-full">
+        <div className="mb-12 text-center">
+          <p className="mb-3 font-mono text-xs font-medium uppercase tracking-[0.2em] text-fd-primary">
+            Get Running In Seconds
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight text-fd-foreground sm:text-3xl">
+            Quick Start
+          </h2>
+        </div>
+
+        <div className="space-y-4">
+          <div className="overflow-hidden border border-fd-border bg-fd-card shadow-lg shadow-black/5 dark:shadow-black/25">
+            <div className="flex items-center gap-2.5 border-b border-fd-border bg-fd-muted/60 px-4 py-2.5">
+              <span className="flex h-5 w-5 items-center justify-center bg-fd-primary/15 font-mono text-[10px] font-bold text-fd-primary">
+                1
+              </span>
+              <span className="text-[11px] font-mono text-fd-muted-foreground">
+                pm3.toml
+              </span>
             </div>
-            <pre className="p-4 font-mono text-sm text-fd-foreground overflow-x-auto">
-              {exampleToml}
-            </pre>
+            <div
+              className="toml-preview overflow-x-auto px-5 text-[13px] leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: highlightedToml }}
+            />
           </div>
-          <div className=" border border-fd-border bg-fd-card overflow-hidden">
-            <div className="px-4 py-2 border-b border-fd-border text-xs font-mono text-fd-muted-foreground">
-              $ pm3 list
+
+          <div className="overflow-hidden border border-fd-border bg-fd-card shadow-lg shadow-black/5 dark:shadow-black/25">
+            <div className="flex items-center gap-2.5 border-b border-fd-border bg-fd-muted/60 px-4 py-2.5">
+              <span className="flex h-5 w-5 items-center justify-center bg-emerald-500/15 font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                2
+              </span>
+              <span className="text-[11px] font-mono text-fd-muted-foreground">
+                terminal
+              </span>
             </div>
-            <pre className="p-4 font-mono text-sm text-fd-foreground overflow-x-auto">
-              {exampleOutput}
+            <pre className="overflow-x-auto p-5 font-mono text-[13px] leading-relaxed">
+              <span className="text-fd-muted-foreground">$ </span>
+              <span className="text-fd-foreground">{quickStartCommand}</span>
             </pre>
           </div>
         </div>
+
+        <p className="mt-8 text-center text-sm text-fd-muted-foreground">
+          Then run <code className={inlineCodeClass}>pm3 list</code> or open{" "}
+          <code className={inlineCodeClass}>pm3 tui</code> to monitor
+          everything.
+        </p>
       </section>
 
       {/* Footer */}
