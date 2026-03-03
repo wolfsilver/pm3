@@ -59,6 +59,8 @@ pub enum Request {
         lines: usize,
         #[serde(default)]
         follow: bool,
+        #[serde(default)]
+        err: bool,
     },
 }
 
@@ -344,8 +346,17 @@ mod tests {
             name: Some("web".to_string()),
             lines: 30,
             follow: true,
+            err: false,
         };
         assert_eq!(roundtrip_request(&req), req);
+
+        let req_err = Request::Log {
+            name: Some("web".to_string()),
+            lines: 15,
+            follow: false,
+            err: true,
+        };
+        assert_eq!(roundtrip_request(&req_err), req_err);
     }
 
     #[test]

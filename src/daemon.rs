@@ -102,10 +102,11 @@ async fn handle_connection_inner(
         ref name,
         lines,
         follow,
+        err,
     } = request
     {
         manager
-            .stream_logs(name.clone(), lines, follow, &mut writer)
+            .stream_logs(name.clone(), lines, follow, err, &mut writer)
             .await?;
         writer.shutdown().await?;
         return Ok(());
