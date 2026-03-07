@@ -119,14 +119,11 @@ pub fn spawn_watcher(
             // Skip directory paths — on macOS, FSEvents fires events for parent
             // directories when child files change, and those parent paths may not
             // contain the ignored component.
-            let mut has_relevant = first_event
-                .paths
-                .iter()
-                .any(|p| {
-                    should_restart_for_event_kind(&first_event.kind)
-                        && !p.is_dir()
-                        && !should_ignore(p, &ignore_patterns)
-                });
+            let mut has_relevant = first_event.paths.iter().any(|p| {
+                should_restart_for_event_kind(&first_event.kind)
+                    && !p.is_dir()
+                    && !should_ignore(p, &ignore_patterns)
+            });
 
             // Debounce: wait configured duration, drain any further events
             tokio::select! {
@@ -372,10 +369,18 @@ mod tests {
     fn test_should_restart_for_event_kind() {
         use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
 
-        assert!(should_restart_for_event_kind(&EventKind::Create(CreateKind::Any)));
-        assert!(should_restart_for_event_kind(&EventKind::Modify(ModifyKind::Any)));
-        assert!(should_restart_for_event_kind(&EventKind::Remove(RemoveKind::Any)));
+        assert!(should_restart_for_event_kind(&EventKind::Create(
+            CreateKind::Any
+        )));
+        assert!(should_restart_for_event_kind(&EventKind::Modify(
+            ModifyKind::Any
+        )));
+        assert!(should_restart_for_event_kind(&EventKind::Remove(
+            RemoveKind::Any
+        )));
         assert!(should_restart_for_event_kind(&EventKind::Any));
-        assert!(!should_restart_for_event_kind(&EventKind::Access(AccessKind::Any)));
+        assert!(!should_restart_for_event_kind(&EventKind::Access(
+            AccessKind::Any
+        )));
     }
 }
