@@ -959,11 +959,31 @@ impl Manager {
             None => table.keys().cloned().collect(),
         };
 
+        // Collect config info before dropping the table
+        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = targets
+            .iter()
+            .filter_map(|name| {
+                table.get(name).map(|proc| {
+                    (
+                        name.clone(),
+                        proc.config.log_out_file.clone(),
+                        proc.config.log_error_file.clone(),
+                        proc.config.cwd.clone(),
+                        proc.config.config_dir.clone(),
+                    )
+                })
+            })
+            .collect();
+
         drop(table);
 
-        for name in &targets {
-            let stdout_path = self.paths.stdout_log(name);
-            let stderr_path = self.paths.stderr_log(name);
+        for (name, log_out, log_err, cwd, config_dir) in config_info {
+            let stdout_path = self
+                .paths
+                .get_stdout_log(&name, log_out.as_deref(), cwd.as_deref(), config_dir.as_deref());
+            let stderr_path = self
+                .paths
+                .get_stderr_log(&name, log_err.as_deref(), cwd.as_deref(), config_dir.as_deref());
 
             if stdout_path.exists()
                 && let Err(e) = fs::write(&stdout_path, b"").await
@@ -981,8 +1001,22 @@ impl Manager {
             }
 
             for i in 1..=log::LOG_ROTATION_KEEP {
-                let _ = fs::remove_file(self.paths.rotated_stdout_log(name, i)).await;
-                let _ = fs::remove_file(self.paths.rotated_stderr_log(name, i)).await;
+                let _ = fs::remove_file(self.paths.get_rotated_stdout_log(
+                    &name,
+                    i,
+                    log_out.as_deref(),
+                    cwd.as_deref(),
+                    config_dir.as_deref(),
+                ))
+                .await;
+                let _ = fs::remove_file(self.paths.get_rotated_stderr_log(
+                    &name,
+                    i,
+                    log_err.as_deref(),
+                    cwd.as_deref(),
+                    config_dir.as_deref(),
+                ))
+                .await;
             }
         }
 
@@ -1076,11 +1110,32 @@ impl Manager {
 
         let multi = targets.len() > 1;
 
-        for target in &targets {
-            let stdout_lines =
-                log::tail_file(&self.paths.stdout_log(target), lines).unwrap_or_default();
-            let stderr_lines =
-                log::tail_file(&self.paths.stderr_log(target), lines).unwrap_or_default();
+        // Collect config info for each target
+        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = targets
+            .iter()
+            .filter_map(|target| {
+                table.get(target).map(|proc| {
+                    (
+                        target.clone(),
+                        proc.config.log_out_file.clone(),
+                        proc.config.log_error_file.clone(),
+                        proc.config.cwd.clone(),
+                        proc.config.config_dir.clone(),
+                    )
+                })
+            })
+            .collect();
+
+        for (target, log_out, log_err, cwd, config_dir) in &config_info {
+            let stdout_path = self
+                .paths
+                .get_stdout_log(target, log_out.as_deref(), cwd.as_deref(), config_dir.as_deref());
+            let stderr_path = self
+                .paths
+                .get_stderr_log(target, log_err.as_deref(), cwd.as_deref(), config_dir.as_deref());
+
+            let stdout_lines = log::tail_file(&stdout_path, lines).unwrap_or_default();
+            let stderr_lines = log::tail_file(&stderr_path, lines).unwrap_or_default();
 
             for line in stdout_lines {
                 let resp = Response::LogLine {
@@ -1431,8 +1486,11 @@ mod tests {
             post_stop: None,
             cron_restart: None,
             log_date_format: None,
+            log_out_file: None,
+            log_error_file: None,
             instances: None,
             environments: HashMap::new(),
+            config_dir: None,
         }
     }
 

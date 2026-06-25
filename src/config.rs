@@ -57,8 +57,14 @@ pub struct ProcessConfig {
     pub post_stop: Option<String>,
     pub cron_restart: Option<String>,
     pub log_date_format: Option<String>,
+    pub log_out_file: Option<String>,
+    pub log_error_file: Option<String>,
     pub instances: Option<u32>,
     pub environments: HashMap<String, HashMap<String, String>>,
+    /// Directory containing the pm3.toml file this config was loaded from.
+    /// Used to resolve relative log paths when `cwd` is not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<String>,
 }
 
 impl ProcessConfig {
@@ -124,6 +130,8 @@ struct RawProcessConfig {
     post_stop: Option<String>,
     cron_restart: Option<String>,
     log_date_format: Option<String>,
+    log_out_file: Option<String>,
+    log_error_file: Option<String>,
     instances: Option<u32>,
     #[serde(flatten)]
     extra: HashMap<String, toml::Value>,
@@ -146,7 +154,14 @@ pub enum ConfigError {
 pub fn load_config(path: &std::path::Path) -> Result<HashMap<String, ProcessConfig>, ConfigError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ConfigError::IoError(format!("{}: {}", path.display(), e)))?;
-    parse_config(&content)
+    let mut configs = parse_config(&content)?;
+    if let Some(dir) = path.parent() {
+        let dir_str = dir.to_string_lossy().into_owned();
+        for config in configs.values_mut() {
+            config.config_dir = Some(dir_str.clone());
+        }
+    }
+    Ok(configs)
 }
 
 pub fn parse_config(content: &str) -> Result<HashMap<String, ProcessConfig>, ConfigError> {
@@ -209,8 +224,11 @@ pub fn parse_config(content: &str) -> Result<HashMap<String, ProcessConfig>, Con
                 post_stop: raw.post_stop,
                 cron_restart: raw.cron_restart,
                 log_date_format: raw.log_date_format,
+                log_out_file: raw.log_out_file,
+                log_error_file: raw.log_error_file,
                 instances: raw.instances,
                 environments,
+                config_dir: None,
             },
         );
     }
@@ -249,6 +267,8 @@ pre_start = "npm run migrate"
 post_stop = "echo stopped"
 cron_restart = "0 3 * * *"
 log_date_format = "%Y-%m-%d %H:%M:%S"
+log_out_file = "./logs/out.log"
+log_error_file = "./logs/error.log"
 
 [web.env_production]
 DATABASE_URL = "postgres://prod/db"
@@ -287,6 +307,8 @@ DATABASE_URL = "postgres://prod/db"
         assert_eq!(web.post_stop.as_deref(), Some("echo stopped"));
         assert_eq!(web.cron_restart.as_deref(), Some("0 3 * * *"));
         assert_eq!(web.log_date_format.as_deref(), Some("%Y-%m-%d %H:%M:%S"));
+        assert_eq!(web.log_out_file.as_deref(), Some("./logs/out.log"));
+        assert_eq!(web.log_error_file.as_deref(), Some("./logs/error.log"));
         assert_eq!(
             web.environments
                 .get("production")
@@ -361,6 +383,8 @@ command = "cargo run"
         assert!(api.post_stop.is_none());
         assert!(api.cron_restart.is_none());
         assert!(api.log_date_format.is_none());
+        assert!(api.log_out_file.is_none());
+        assert!(api.log_error_file.is_none());
         assert!(api.environments.is_empty());
     }
 
@@ -505,8 +529,11 @@ DATABASE_URL = "postgres://staging/db"
             post_stop: None,
             cron_restart: None,
             log_date_format: None,
+            log_out_file: None,
+            log_error_file: None,
             instances: None,
             environments: HashMap::new(),
+            config_dir: None,
         }
     }
 
@@ -610,5 +637,84 @@ command = "node server.js"
 "#;
         let configs = parse_config(input).unwrap();
         assert!(configs["web"].instances.is_none());
+    }
+
+    #[test]
+    fn test_log_files_separate() {
+        let input = r#"
+[worker]
+command = "python worker.py"
+log_out_file = "./logs/worker.log"
+log_error_file = "./logs/worker_error.log"
+"#;
+        let configs = parse_config(input).unwrap();
+        assert_eq!(
+            configs["worker"].log_out_file.as_deref(),
+            Some("./logs/worker.log")
+        );
+        assert_eq!(
+            configs["worker"].log_error_file.as_deref(),
+            Some("./logs/worker_error.log")
+        );
+    }
+
+    #[test]
+    fn test_log_files_same_path() {
+        let input = r#"
+[api]
+command = "node api.js"
+log_out_file = "./logs/api.log"
+log_error_file = "./logs/api.log"
+"#;
+        let configs = parse_config(input).unwrap();
+        assert_eq!(
+            configs["api"].log_out_file.as_deref(),
+            Some("./logs/api.log")
+        );
+        assert_eq!(
+            configs["api"].log_error_file.as_deref(),
+            Some("./logs/api.log")
+        );
+    }
+
+    #[test]
+    fn test_log_files_optional() {
+        let input = r#"
+[web]
+command = "node server.js"
+"#;
+        let configs = parse_config(input).unwrap();
+        assert!(configs["web"].log_out_file.is_none());
+        assert!(configs["web"].log_error_file.is_none());
+    }
+
+    #[test]
+    fn test_log_out_file_only() {
+        let input = r#"
+[service]
+command = "cargo run"
+log_out_file = "/var/log/service.log"
+"#;
+        let configs = parse_config(input).unwrap();
+        assert_eq!(
+            configs["service"].log_out_file.as_deref(),
+            Some("/var/log/service.log")
+        );
+        assert!(configs["service"].log_error_file.is_none());
+    }
+
+    #[test]
+    fn test_log_error_file_only() {
+        let input = r#"
+[daemon]
+command = "node daemon.js"
+log_error_file = "/var/log/daemon_errors.log"
+"#;
+        let configs = parse_config(input).unwrap();
+        assert!(configs["daemon"].log_out_file.is_none());
+        assert_eq!(
+            configs["daemon"].log_error_file.as_deref(),
+            Some("/var/log/daemon_errors.log")
+        );
     }
 }
