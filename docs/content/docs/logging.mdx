@@ -8,14 +8,39 @@ pm3 captures all process output into log files and provides tools for viewing, t
 
 ## Log Files
 
-Each process gets two log files:
+Each process gets two log files by default:
 
 | File | Content |
 |---|---|
 | `<name>-out.log` | Standard output (stdout) |
 | `<name>-err.log` | Standard error (stderr) |
 
-Log files are stored in `~/.local/share/pm3/logs/`.
+Log files are stored in `~/.local/share/pm3/logs/` by default.
+
+## Custom Log File Paths
+
+You can specify custom log file paths using the `log_out_file` and `log_error_file` options:
+
+```toml
+[web]
+command = "node server.js"
+log_out_file = "./logs/web.log"
+log_error_file = "./logs/web-errors.log"
+```
+
+Both paths support:
+- **Relative paths**: Resolved relative to the process's `cwd` (if set) or the directory containing `pm3.toml`
+- **Absolute paths**: Absolute paths are used as-is (e.g. `/var/log/app.log` on Unix, `C:\\logs\\app.log` on Windows)
+- **Same file**: Both stdout and stderr can be directed to the same file
+
+```toml
+[worker]
+command = "python worker.py"
+log_out_file = "./logs/worker.log"
+log_error_file = "./logs/worker.log"  # Both stdout and stderr go to the same file
+```
+
+If `log_out_file` or `log_error_file` are not specified, pm3 will use the default log directory.
 
 ## PTY Support
 

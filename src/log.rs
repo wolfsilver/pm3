@@ -133,6 +133,11 @@ async fn run_log_copier(
     broadcaster: broadcast::Sender<LogEntry>,
 ) -> io::Result<()> {
     let mut buf_reader = TokioBufReader::new(reader);
+
+    if let Some(parent) = log_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -193,6 +198,7 @@ async fn run_log_copier(
 mod tests {
     use super::*;
     use std::io::Write;
+    use tokio::io::AsyncWriteExt;
 
     #[test]
     fn test_tail_file_empty() {
@@ -256,6 +262,31 @@ mod tests {
         writeln!(f, "line1").unwrap();
         let lines = tail_file(&path, 0).unwrap();
         assert!(lines.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_log_copier_creates_missing_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("nested/logs/custom.log");
+
+        let (reader, mut writer) = tokio::io::duplex(64);
+        writer.write_all(b"hello\n").await.unwrap();
+        drop(writer);
+
+        let (tx, _) = broadcast::channel(8);
+        run_log_copier(
+            "web".to_string(),
+            LogStream::Stdout,
+            reader,
+            log_path.clone(),
+            None,
+            tx,
+        )
+        .await
+        .unwrap();
+
+        let content = tokio::fs::read_to_string(log_path).await.unwrap();
+        assert_eq!(content, "hello\n");
     }
 
     #[tokio::test]
