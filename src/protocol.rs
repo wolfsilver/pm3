@@ -239,6 +239,7 @@ mod tests {
                 log_error_file: None,
                 instances: None,
                 environments: HashMap::new(),
+                config_dir: None,
             },
         );
         let req = Request::Start {

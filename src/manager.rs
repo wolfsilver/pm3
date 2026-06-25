@@ -960,7 +960,7 @@ impl Manager {
         };
 
         // Collect config info before dropping the table
-        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>)> = targets
+        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = targets
             .iter()
             .filter_map(|name| {
                 table.get(name).map(|proc| {
@@ -969,6 +969,7 @@ impl Manager {
                         proc.config.log_out_file.clone(),
                         proc.config.log_error_file.clone(),
                         proc.config.cwd.clone(),
+                        proc.config.config_dir.clone(),
                     )
                 })
             })
@@ -976,13 +977,13 @@ impl Manager {
 
         drop(table);
 
-        for (name, log_out, log_err, cwd) in config_info {
+        for (name, log_out, log_err, cwd, config_dir) in config_info {
             let stdout_path = self
                 .paths
-                .get_stdout_log(&name, log_out.as_deref(), cwd.as_deref());
+                .get_stdout_log(&name, log_out.as_deref(), cwd.as_deref(), config_dir.as_deref());
             let stderr_path = self
                 .paths
-                .get_stderr_log(&name, log_err.as_deref(), cwd.as_deref());
+                .get_stderr_log(&name, log_err.as_deref(), cwd.as_deref(), config_dir.as_deref());
 
             if stdout_path.exists()
                 && let Err(e) = fs::write(&stdout_path, b"").await
@@ -1005,6 +1006,7 @@ impl Manager {
                     i,
                     log_out.as_deref(),
                     cwd.as_deref(),
+                    config_dir.as_deref(),
                 ))
                 .await;
                 let _ = fs::remove_file(self.paths.get_rotated_stderr_log(
@@ -1012,6 +1014,7 @@ impl Manager {
                     i,
                     log_err.as_deref(),
                     cwd.as_deref(),
+                    config_dir.as_deref(),
                 ))
                 .await;
             }
@@ -1108,7 +1111,7 @@ impl Manager {
         let multi = targets.len() > 1;
 
         // Collect config info for each target
-        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>)> = targets
+        let config_info: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = targets
             .iter()
             .filter_map(|target| {
                 table.get(target).map(|proc| {
@@ -1117,18 +1120,19 @@ impl Manager {
                         proc.config.log_out_file.clone(),
                         proc.config.log_error_file.clone(),
                         proc.config.cwd.clone(),
+                        proc.config.config_dir.clone(),
                     )
                 })
             })
             .collect();
 
-        for (target, log_out, log_err, cwd) in &config_info {
+        for (target, log_out, log_err, cwd, config_dir) in &config_info {
             let stdout_path = self
                 .paths
-                .get_stdout_log(target, log_out.as_deref(), cwd.as_deref());
+                .get_stdout_log(target, log_out.as_deref(), cwd.as_deref(), config_dir.as_deref());
             let stderr_path = self
                 .paths
-                .get_stderr_log(target, log_err.as_deref(), cwd.as_deref());
+                .get_stderr_log(target, log_err.as_deref(), cwd.as_deref(), config_dir.as_deref());
 
             let stdout_lines = log::tail_file(&stdout_path, lines).unwrap_or_default();
             let stderr_lines = log::tail_file(&stderr_path, lines).unwrap_or_default();
@@ -1486,6 +1490,7 @@ mod tests {
             log_error_file: None,
             instances: None,
             environments: HashMap::new(),
+            config_dir: None,
         }
     }
 

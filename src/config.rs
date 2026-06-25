@@ -61,6 +61,10 @@ pub struct ProcessConfig {
     pub log_error_file: Option<String>,
     pub instances: Option<u32>,
     pub environments: HashMap<String, HashMap<String, String>>,
+    /// Directory containing the pm3.toml file this config was loaded from.
+    /// Used to resolve relative log paths when `cwd` is not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_dir: Option<String>,
 }
 
 impl ProcessConfig {
@@ -150,7 +154,14 @@ pub enum ConfigError {
 pub fn load_config(path: &std::path::Path) -> Result<HashMap<String, ProcessConfig>, ConfigError> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| ConfigError::IoError(format!("{}: {}", path.display(), e)))?;
-    parse_config(&content)
+    let mut configs = parse_config(&content)?;
+    if let Some(dir) = path.parent() {
+        let dir_str = dir.to_string_lossy().into_owned();
+        for config in configs.values_mut() {
+            config.config_dir = Some(dir_str.clone());
+        }
+    }
+    Ok(configs)
 }
 
 pub fn parse_config(content: &str) -> Result<HashMap<String, ProcessConfig>, ConfigError> {
@@ -217,6 +228,7 @@ pub fn parse_config(content: &str) -> Result<HashMap<String, ProcessConfig>, Con
                 log_error_file: raw.log_error_file,
                 instances: raw.instances,
                 environments,
+                config_dir: None,
             },
         );
     }
@@ -521,6 +533,7 @@ DATABASE_URL = "postgres://staging/db"
             log_error_file: None,
             instances: None,
             environments: HashMap::new(),
+            config_dir: None,
         }
     }
 

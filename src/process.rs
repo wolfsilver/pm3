@@ -180,11 +180,13 @@ impl ManagedProcess {
             &self.name,
             self.config.log_out_file.as_deref(),
             self.config.cwd.as_deref(),
+            self.config.config_dir.as_deref(),
         );
         let stderr_log_path = paths.get_stderr_log(
             &self.name,
             self.config.log_error_file.as_deref(),
             self.config.cwd.as_deref(),
+            self.config.config_dir.as_deref(),
         );
         ProcessDetail {
             name: self.name.clone(),
@@ -383,8 +385,12 @@ pub async fn spawn_process(
     // Spawn stdout log copier
     #[cfg(unix)]
     if let Some(reader) = pty_reader {
-        let stdout_log_path =
-            paths.get_stdout_log(&name, config.log_out_file.as_deref(), config.cwd.as_deref());
+        let stdout_log_path = paths.get_stdout_log(
+            &name,
+            config.log_out_file.as_deref(),
+            config.cwd.as_deref(),
+            config.config_dir.as_deref(),
+        );
         log::spawn_log_copier(
             name.clone(),
             LogStream::Stdout,
@@ -396,8 +402,12 @@ pub async fn spawn_process(
     }
     #[cfg(not(unix))]
     if let Some(stdout) = child.stdout.take() {
-        let stdout_log_path =
-            paths.get_stdout_log(&name, config.log_out_file.as_deref(), config.cwd.as_deref());
+        let stdout_log_path = paths.get_stdout_log(
+            &name,
+            config.log_out_file.as_deref(),
+            config.cwd.as_deref(),
+            config.config_dir.as_deref(),
+        );
         log::spawn_log_copier(
             name.clone(),
             LogStream::Stdout,
@@ -413,6 +423,7 @@ pub async fn spawn_process(
             &name,
             config.log_error_file.as_deref(),
             config.cwd.as_deref(),
+            config.config_dir.as_deref(),
         );
         log::spawn_log_copier(
             name.clone(),
@@ -860,6 +871,7 @@ mod tests {
             log_error_file: None,
             instances: None,
             environments: HashMap::new(),
+            config_dir: None,
         }
     }
 
