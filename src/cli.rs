@@ -59,6 +59,9 @@ pub enum Command {
         lines: usize,
         #[arg(short, long)]
         follow: bool,
+        /// Show only stderr (error) logs
+        #[arg(short = 'e', long)]
+        err: bool,
     },
 }
 
@@ -284,10 +287,12 @@ mod tests {
                 name,
                 lines,
                 follow,
+                err,
             } => {
                 assert!(name.is_none());
                 assert_eq!(lines, 15);
                 assert!(!follow);
+                assert!(!err);
             }
             _ => panic!("expected Log"),
         }
@@ -301,11 +306,31 @@ mod tests {
                 name,
                 lines,
                 follow,
+                err,
             } => {
                 assert_eq!(name.as_deref(), Some("web"));
                 assert_eq!(lines, 50);
                 assert!(follow);
+                assert!(!err);
             }
+            _ => panic!("expected Log"),
+        }
+    }
+
+    #[test]
+    fn test_log_err_flag() {
+        let cli = Cli::try_parse_from(["pm3", "log", "web", "--err"]).unwrap();
+        match cli.command.unwrap() {
+            Command::Log { name, err, .. } => {
+                assert_eq!(name.as_deref(), Some("web"));
+                assert!(err);
+            }
+            _ => panic!("expected Log"),
+        }
+
+        let cli = Cli::try_parse_from(["pm3", "log", "web", "-e"]).unwrap();
+        match cli.command.unwrap() {
+            Command::Log { err, .. } => assert!(err),
             _ => panic!("expected Log"),
         }
     }

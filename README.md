@@ -57,6 +57,8 @@ pm3 list                         # show process table (alias: view)
 pm3 info <name>                  # show detailed info about a process
 pm3 log [name]                   # view logs (default: last 15 lines)
 pm3 log <name> --lines 50 -f     # tail 50 lines and follow
+pm3 log <name> --err             # view only stderr (error) logs
+pm3 log <name> --err -f          # follow only stderr (error) logs
 pm3 flush [names...]             # clear log files
 pm3 signal <name> <signal>       # send a signal to a process (e.g. SIGHUP)
 pm3 save                         # save current process list for resurrection

@@ -1054,6 +1054,7 @@ impl Manager {
         name: Option<String>,
         lines: usize,
         follow: bool,
+        err: bool,
         writer: &mut (impl AsyncWriteExt + Unpin),
     ) -> color_eyre::Result<()> {
         let lines = lines.min(Self::MAX_LOG_LINES);
@@ -1077,19 +1078,20 @@ impl Manager {
         let multi = targets.len() > 1;
 
         for target in &targets {
-            let stdout_lines =
-                log::tail_file(&self.paths.stdout_log(target), lines).unwrap_or_default();
+            if !err {
+                let stdout_lines =
+                    log::tail_file(&self.paths.stdout_log(target), lines).unwrap_or_default();
+                for line in stdout_lines {
+                    let resp = Response::LogLine {
+                        name: if multi { Some(target.clone()) } else { None },
+                        line,
+                    };
+                    let encoded = protocol::encode_response(&resp)?;
+                    writer.write_all(&encoded).await?;
+                }
+            }
             let stderr_lines =
                 log::tail_file(&self.paths.stderr_log(target), lines).unwrap_or_default();
-
-            for line in stdout_lines {
-                let resp = Response::LogLine {
-                    name: if multi { Some(target.clone()) } else { None },
-                    line,
-                };
-                let encoded = protocol::encode_response(&resp)?;
-                writer.write_all(&encoded).await?;
-            }
             for line in stderr_lines {
                 let resp = Response::LogLine {
                     name: if multi { Some(target.clone()) } else { None },
@@ -1123,6 +1125,9 @@ impl Manager {
             for (i, (target, rx)) in receivers.iter_mut().enumerate() {
                 match rx.try_recv() {
                     Ok(entry) => {
+                        if err && entry.stream != log::LogStream::Stderr {
+                            continue;
+                        }
                         let resp = Response::LogLine {
                             name: if multi { Some(target.clone()) } else { None },
                             line: entry.line,

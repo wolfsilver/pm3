@@ -1148,6 +1148,7 @@ async fn test_log_shows_stdout_lines() {
             name: Some("echoer".to_string()),
             lines: 15,
             follow: false,
+            err: false,
         },
     )
     .await;
@@ -1209,6 +1210,7 @@ async fn test_log_lines_param_limits_output() {
             name: Some("counter".to_string()),
             lines: 5,
             follow: false,
+            err: false,
         },
     )
     .await;
@@ -1269,6 +1271,7 @@ async fn test_log_no_name_interleaves_all_processes() {
             name: None,
             lines: 15,
             follow: false,
+            err: false,
         },
     )
     .await;
@@ -1328,6 +1331,7 @@ async fn test_log_single_process_no_name_prefix() {
             name: Some("solo".to_string()),
             lines: 15,
             follow: false,
+            err: false,
         },
     )
     .await;
@@ -1362,6 +1366,7 @@ async fn test_log_nonexistent_process_returns_error() {
             name: Some("nope".to_string()),
             lines: 15,
             follow: false,
+            err: false,
         },
     )
     .await;
@@ -1421,6 +1426,7 @@ async fn test_log_follow_streams_new_lines() {
             name: Some("slow".to_string()),
             lines: 15,
             follow: true,
+            err: false,
         };
         let encoded = protocol::encode_request(&request).unwrap();
         stream.write_all(&encoded).unwrap();
