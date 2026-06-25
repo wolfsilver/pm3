@@ -68,6 +68,94 @@ impl Paths {
             .join("logs")
             .join(format!("{name}-err.log.{n}"))
     }
+
+    /// Resolve a log file path. If it's relative, resolve it relative to cwd (if set) or pm3 config dir.
+    pub fn resolve_log_path(&self, log_path: &str, cwd: Option<&str>) -> PathBuf {
+        let path = Path::new(log_path);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else if let Some(dir) = cwd {
+            PathBuf::from(dir).join(path)
+        } else {
+            self.data_dir.join(path)
+        }
+    }
+
+    /// Get the stdout log path, preferring custom path from config if set, otherwise default.
+    pub fn get_stdout_log(
+        &self,
+        name: &str,
+        custom_path: Option<&str>,
+        cwd: Option<&str>,
+    ) -> PathBuf {
+        custom_path
+            .map(|p| self.resolve_log_path(p, cwd))
+            .unwrap_or_else(|| self.stdout_log(name))
+    }
+
+    /// Get the stderr log path, preferring custom path from config if set, otherwise default.
+    pub fn get_stderr_log(
+        &self,
+        name: &str,
+        custom_path: Option<&str>,
+        cwd: Option<&str>,
+    ) -> PathBuf {
+        custom_path
+            .map(|p| self.resolve_log_path(p, cwd))
+            .unwrap_or_else(|| self.stderr_log(name))
+    }
+
+    /// Get rotated stdout log path, following the same directory as the main log file.
+    pub fn get_rotated_stdout_log(
+        &self,
+        name: &str,
+        n: u32,
+        custom_path: Option<&str>,
+        cwd: Option<&str>,
+    ) -> PathBuf {
+        if let Some(custom) = custom_path {
+            let log_path = self.resolve_log_path(custom, cwd);
+            // Create rotated filename in the same directory as the custom log
+            if let Some(parent) = log_path.parent() {
+                if let Some(filename) = log_path.file_name() {
+                    let rotated_name = format!("{}.{}", filename.to_string_lossy(), n);
+                    return parent.join(rotated_name);
+                }
+            }
+            // Fallback to appending to the path
+            let mut rotated = log_path.to_string_lossy().into_owned();
+            rotated.push_str(&format!(".{}", n));
+            PathBuf::from(rotated)
+        } else {
+            self.rotated_stdout_log(name, n)
+        }
+    }
+
+    /// Get rotated stderr log path, following the same directory as the main log file.
+    pub fn get_rotated_stderr_log(
+        &self,
+        name: &str,
+        n: u32,
+        custom_path: Option<&str>,
+        cwd: Option<&str>,
+    ) -> PathBuf {
+        if let Some(custom) = custom_path {
+            let log_path = self.resolve_log_path(custom, cwd);
+            // Create rotated filename in the same directory as the custom log
+            if let Some(parent) = log_path.parent() {
+                if let Some(filename) = log_path.file_name() {
+                    let rotated_name = format!("{}.{}", filename.to_string_lossy(), n);
+                    return parent.join(rotated_name);
+                }
+            }
+            // Fallback to appending to the path
+            let mut rotated = log_path.to_string_lossy().into_owned();
+            rotated.push_str(&format!(".{}", n));
+            PathBuf::from(rotated)
+        } else {
+            self.rotated_stderr_log(name, n)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -180,5 +268,82 @@ mod tests {
                 .rotated_stderr_log("web", 3)
                 .ends_with("logs/web-err.log.3")
         );
+    }
+
+    #[test]
+    fn test_resolve_log_path_absolute() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let resolved = paths.resolve_log_path("/var/log/app.log", None);
+        assert_eq!(resolved, PathBuf::from("/var/log/app.log"));
+    }
+
+    #[test]
+    fn test_resolve_log_path_relative_with_cwd() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let resolved = paths.resolve_log_path("logs/app.log", Some("/app"));
+        assert_eq!(resolved, PathBuf::from("/app/logs/app.log"));
+    }
+
+    #[test]
+    fn test_resolve_log_path_relative_without_cwd() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let resolved = paths.resolve_log_path("logs/app.log", None);
+        assert_eq!(resolved, PathBuf::from("/tmp/pm3-test/logs/app.log"));
+    }
+
+    #[test]
+    fn test_get_stdout_log_custom_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_stdout_log("web", Some("./logs/custom.log"), Some("/app"));
+        assert_eq!(log_path, PathBuf::from("/app/./logs/custom.log"));
+    }
+
+    #[test]
+    fn test_get_stdout_log_default_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_stdout_log("web", None, None);
+        assert!(log_path.ends_with("logs/web-out.log"));
+    }
+
+    #[test]
+    fn test_get_stderr_log_custom_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_stderr_log("worker", Some("/var/log/worker-err.log"), None);
+        assert_eq!(log_path, PathBuf::from("/var/log/worker-err.log"));
+    }
+
+    #[test]
+    fn test_get_stderr_log_default_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_stderr_log("worker", None, None);
+        assert!(log_path.ends_with("logs/worker-err.log"));
+    }
+
+    #[test]
+    fn test_get_rotated_stdout_log_custom_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_rotated_stdout_log("app", 1, Some("logs/app.log"), None);
+        assert!(log_path.ends_with("logs/app.log.1"));
+    }
+
+    #[test]
+    fn test_get_rotated_stdout_log_default_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_rotated_stdout_log("app", 1, None, None);
+        assert!(log_path.ends_with("logs/app-out.log.1"));
+    }
+
+    #[test]
+    fn test_get_rotated_stderr_log_custom_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_rotated_stderr_log("svc", 2, Some("/var/log/svc.err"), None);
+        assert_eq!(log_path, PathBuf::from("/var/log/svc.err.2"));
+    }
+
+    #[test]
+    fn test_get_rotated_stderr_log_default_path() {
+        let paths = Paths::with_base(PathBuf::from("/tmp/pm3-test"));
+        let log_path = paths.get_rotated_stderr_log("svc", 3, None, None);
+        assert!(log_path.ends_with("logs/svc-err.log.3"));
     }
 }

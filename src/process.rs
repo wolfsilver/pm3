@@ -176,6 +176,8 @@ impl ManagedProcess {
         stats_cache: &memory::StatsCache,
     ) -> ProcessDetail {
         let stats = self.pid.and_then(|pid| stats_cache.get(&pid));
+        let stdout_log_path = paths.get_stdout_log(&self.name, self.config.log_out_file.as_deref(), self.config.cwd.as_deref());
+        let stderr_log_path = paths.get_stderr_log(&self.name, self.config.log_error_file.as_deref(), self.config.cwd.as_deref());
         ProcessDetail {
             name: self.name.clone(),
             pid: self.pid,
@@ -189,8 +191,8 @@ impl ManagedProcess {
             cwd: self.config.cwd.clone(),
             env: self.config.env.clone(),
             exit_code: None,
-            stdout_log: Some(paths.stdout_log(&self.name).to_string_lossy().into_owned()),
-            stderr_log: Some(paths.stderr_log(&self.name).to_string_lossy().into_owned()),
+            stdout_log: Some(stdout_log_path.to_string_lossy().into_owned()),
+            stderr_log: Some(stderr_log_path.to_string_lossy().into_owned()),
             health_check: self.config.health_check.clone(),
             depends_on: self.config.depends_on.clone(),
         }
@@ -373,33 +375,36 @@ pub async fn spawn_process(
     // Spawn stdout log copier
     #[cfg(unix)]
     if let Some(reader) = pty_reader {
+        let stdout_log_path = paths.get_stdout_log(&name, config.log_out_file.as_deref(), config.cwd.as_deref());
         log::spawn_log_copier(
             name.clone(),
             LogStream::Stdout,
             reader,
-            paths.stdout_log(&name),
+            stdout_log_path,
             log_date_format.clone(),
             log_tx.clone(),
         );
     }
     #[cfg(not(unix))]
     if let Some(stdout) = child.stdout.take() {
+        let stdout_log_path = paths.get_stdout_log(&name, config.log_out_file.as_deref(), config.cwd.as_deref());
         log::spawn_log_copier(
             name.clone(),
             LogStream::Stdout,
             stdout,
-            paths.stdout_log(&name),
+            stdout_log_path,
             log_date_format.clone(),
             log_tx.clone(),
         );
     }
 
     if let Some(stderr) = child.stderr.take() {
+        let stderr_log_path = paths.get_stderr_log(&name, config.log_error_file.as_deref(), config.cwd.as_deref());
         log::spawn_log_copier(
             name.clone(),
             LogStream::Stderr,
             stderr,
-            paths.stderr_log(&name),
+            stderr_log_path,
             log_date_format,
             log_tx.clone(),
         );
