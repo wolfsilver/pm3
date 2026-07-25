@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::io;
 use std::path::Path;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+use tokio::io::{
+    AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader, BufWriter as TokioBufWriter,
+};
 use tokio::sync::broadcast;
 
 /// 10 MB rotation threshold
@@ -124,6 +127,15 @@ pub fn spawn_log_copier(
     });
 }
 
+fn format_log_payload<'a>(line: &'a str, log_date_format: Option<&String>) -> Cow<'a, [u8]> {
+    if let Some(fmt) = log_date_format {
+        let ts = chrono::Local::now().format(fmt);
+        Cow::Owned(format!("{ts} | {line}").into_bytes())
+    } else {
+        Cow::Borrowed(line.as_bytes())
+    }
+}
+
 async fn run_log_copier(
     _name: String,
     stream: LogStream,
@@ -138,11 +150,13 @@ async fn run_log_copier(
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .await?;
+    let mut file = TokioBufWriter::new(
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .await?,
+    );
 
     let mut byte_count: u64 = {
         let meta = tokio::fs::metadata(&log_path).await?;
@@ -157,30 +171,25 @@ async fn run_log_copier(
             break; // EOF — child exited
         }
 
-        let formatted = if let Some(ref fmt) = log_date_format {
-            let ts = chrono::Local::now().format(fmt);
-            format!("{ts} | {line}")
-        } else {
-            line.clone()
-        };
+        let line_bytes = format_log_payload(&line, log_date_format.as_ref());
 
         // Check rotation before writing
-        let line_bytes = formatted.as_bytes();
         if byte_count + line_bytes.len() as u64 > LOG_ROTATION_SIZE {
             // Flush and close current file, rotate, reopen
             file.flush().await?;
             drop(file);
             rotate_log(&log_path, LOG_ROTATION_KEEP).await?;
-            file = tokio::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .await?;
+            file = TokioBufWriter::new(
+                tokio::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+                    .await?,
+            );
             byte_count = 0;
         }
 
-        file.write_all(line_bytes).await?;
-        file.flush().await?;
+        file.write_all(&line_bytes).await?;
         byte_count += line_bytes.len() as u64;
 
         // Broadcast to any follow subscribers (ignore if no receivers)
@@ -253,7 +262,19 @@ mod tests {
         let lines = tail_file(&path, 10).unwrap();
         assert!(lines.is_empty());
     }
+    #[test]
+    fn test_format_log_payload_without_timestamp_is_zero_copy() {
+        let payload = format_log_payload("hello\n", None);
+        assert_eq!(payload.as_ref(), b"hello\n");
+        assert!(matches!(payload, Cow::Borrowed(_)));
+    }
 
+    #[test]
+    fn test_format_log_payload_with_timestamp_adds_prefix() {
+        let payload = format_log_payload("hello\n", Some(&"%Y-%m-%d".to_string()));
+        let rendered = String::from_utf8(payload.into_owned()).unwrap();
+        assert!(rendered.contains(" | hello\n"));
+    }
     #[test]
     fn test_tail_file_zero_lines() {
         let dir = tempfile::tempdir().unwrap();
