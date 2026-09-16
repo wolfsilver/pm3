@@ -33,6 +33,8 @@ fn test_config(command: &str) -> ProcessConfig {
         post_stop: None,
         cron_restart: None,
         log_date_format: None,
+        log_out_file: None,
+        log_error_file: None,
         instances: None,
         environments: HashMap::new(),
     }
@@ -363,6 +365,60 @@ async fn test_log_capture_stderr() {
         content.contains("error"),
         "stderr log should contain 'error', got: {content}"
     );
+
+    send_raw_request(&paths, &Request::Kill).await;
+    let _ = handle.await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_log_capture_stdout_and_stderr_to_same_file() {
+    let dir = TempDir::new().unwrap();
+    let paths = Paths::with_base(dir.path().to_path_buf());
+    let shared_log = dir.path().join("logs/shared.log");
+
+    let handle = start_test_daemon(&paths).await;
+
+    let mut config = test_config(
+        "sh -c 'for i in 1 2 3 4 5 6 7 8; do echo stdout-$i; echo stderr-$i >&2; done'",
+    );
+    let shared_log = shared_log.to_string_lossy().into_owned();
+    config.log_out_file = Some(shared_log.clone());
+    config.log_error_file = Some(shared_log.clone());
+
+    let mut configs = HashMap::new();
+    configs.insert("shared-writer".to_string(), config);
+    let start_resp = send_raw_request(
+        &paths,
+        &Request::Start {
+            configs,
+            names: None,
+            env: None,
+            wait: false,
+            path: None,
+        },
+    )
+    .await;
+    assert!(
+        matches!(&start_resp, Response::Success { .. }),
+        "expected Success, got: {start_resp:?}"
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let content = std::fs::read_to_string(&shared_log).unwrap();
+    for i in 1..=8 {
+        assert!(
+            content
+                .lines()
+                .any(|line| { line.trim_end_matches('\r') == format!("stdout-{i}") })
+        );
+        assert!(
+            content
+                .lines()
+                .any(|line| { line.trim_end_matches('\r') == format!("stderr-{i}") })
+        );
+    }
+    assert_eq!(content.lines().count(), 16);
 
     send_raw_request(&paths, &Request::Kill).await;
     let _ = handle.await;
