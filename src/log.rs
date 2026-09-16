@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
-use tokio::sync::broadcast;
+use tokio::sync::{Mutex, broadcast};
 
 /// 10 MB rotation threshold
 pub const LOG_ROTATION_SIZE: u64 = 10 * 1024 * 1024;
@@ -20,6 +20,78 @@ pub enum LogStream {
 pub struct LogEntry {
     pub stream: LogStream,
     pub line: String,
+}
+
+pub(crate) struct LogSink {
+    path: std::path::PathBuf,
+    state: Mutex<LogSinkState>,
+}
+
+struct LogSinkState {
+    file: Option<tokio::fs::File>,
+    byte_count: u64,
+}
+
+impl LogSink {
+    pub(crate) fn new(path: std::path::PathBuf) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            path,
+            state: Mutex::new(LogSinkState {
+                file: None,
+                byte_count: 0,
+            }),
+        })
+    }
+
+    async fn open_file(&self) -> io::Result<(tokio::fs::File, u64)> {
+        if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .await?;
+        let byte_count = tokio::fs::metadata(&self.path).await?.len();
+        Ok((file, byte_count))
+    }
+
+    async fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        let mut state = self.state.lock().await;
+
+        if state.file.is_none() {
+            let (file, byte_count) = self.open_file().await?;
+            state.file = Some(file);
+            state.byte_count = byte_count;
+        }
+
+        if state.byte_count + bytes.len() as u64 > LOG_ROTATION_SIZE {
+            let mut file = state.file.take().expect("log sink file is initialized");
+            file.flush().await?;
+            drop(file);
+
+            rotate_log(&self.path, LOG_ROTATION_KEEP).await?;
+
+            let (file, _) = self.open_file().await?;
+            state.file = Some(file);
+            state.byte_count = 0;
+        }
+
+        let file = state.file.as_mut().expect("log sink file is initialized");
+        file.write_all(bytes).await?;
+        file.flush().await?;
+        state.byte_count += bytes.len() as u64;
+        Ok(())
+    }
+
+    async fn flush(&self) -> io::Result<()> {
+        let mut state = self.state.lock().await;
+        if let Some(file) = state.file.as_mut() {
+            file.flush().await?;
+        }
+        Ok(())
+    }
 }
 
 pub fn tail_file(path: &Path, n: usize) -> io::Result<Vec<String>> {
@@ -124,6 +196,23 @@ pub fn spawn_log_copier(
     });
 }
 
+pub(crate) fn spawn_log_copier_with_sink(
+    name: String,
+    stream: LogStream,
+    reader: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    sink: std::sync::Arc<LogSink>,
+    log_date_format: Option<String>,
+    broadcaster: broadcast::Sender<LogEntry>,
+) {
+    tokio::spawn(async move {
+        if let Err(e) =
+            run_log_copier_with_sink(name, stream, reader, sink, log_date_format, broadcaster).await
+        {
+            eprintln!("log copier error: {e}");
+        }
+    });
+}
+
 async fn run_log_copier(
     _name: String,
     stream: LogStream,
@@ -132,22 +221,26 @@ async fn run_log_copier(
     log_date_format: Option<String>,
     broadcaster: broadcast::Sender<LogEntry>,
 ) -> io::Result<()> {
+    run_log_copier_with_sink(
+        _name,
+        stream,
+        reader,
+        LogSink::new(log_path),
+        log_date_format,
+        broadcaster,
+    )
+    .await
+}
+
+async fn run_log_copier_with_sink(
+    _name: String,
+    stream: LogStream,
+    reader: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    sink: std::sync::Arc<LogSink>,
+    log_date_format: Option<String>,
+    broadcaster: broadcast::Sender<LogEntry>,
+) -> io::Result<()> {
     let mut buf_reader = TokioBufReader::new(reader);
-
-    if let Some(parent) = log_path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .await?;
-
-    let mut byte_count: u64 = {
-        let meta = tokio::fs::metadata(&log_path).await?;
-        meta.len()
-    };
 
     let mut line = String::new();
     loop {
@@ -164,24 +257,7 @@ async fn run_log_copier(
             line.clone()
         };
 
-        // Check rotation before writing
-        let line_bytes = formatted.as_bytes();
-        if byte_count + line_bytes.len() as u64 > LOG_ROTATION_SIZE {
-            // Flush and close current file, rotate, reopen
-            file.flush().await?;
-            drop(file);
-            rotate_log(&log_path, LOG_ROTATION_KEEP).await?;
-            file = tokio::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .await?;
-            byte_count = 0;
-        }
-
-        file.write_all(line_bytes).await?;
-        file.flush().await?;
-        byte_count += line_bytes.len() as u64;
+        sink.write(formatted.as_bytes()).await?;
 
         // Broadcast to any follow subscribers (ignore if no receivers)
         let _ = broadcaster.send(LogEntry {
@@ -190,7 +266,7 @@ async fn run_log_copier(
         });
     }
 
-    file.flush().await?;
+    sink.flush().await?;
     Ok(())
 }
 
@@ -287,6 +363,88 @@ mod tests {
 
         let content = tokio::fs::read_to_string(log_path).await.unwrap();
         assert_eq!(content, "hello\n");
+    }
+
+    #[tokio::test]
+    async fn test_shared_sink_serializes_stdout_and_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("shared.log");
+        let sink = LogSink::new(log_path.clone());
+        let (stdout_reader, mut stdout_writer) = tokio::io::duplex(4096);
+        let (stderr_reader, mut stderr_writer) = tokio::io::duplex(4096);
+        let (tx, _rx) = broadcast::channel(256);
+
+        let stdout_copier = tokio::spawn(run_log_copier_with_sink(
+            "test".to_string(),
+            LogStream::Stdout,
+            stdout_reader,
+            sink.clone(),
+            None,
+            tx.clone(),
+        ));
+        let stderr_copier = tokio::spawn(run_log_copier_with_sink(
+            "test".to_string(),
+            LogStream::Stderr,
+            stderr_reader,
+            sink,
+            None,
+            tx,
+        ));
+
+        let stdout_data = (0..64).map(|i| format!("stdout-{i}\n")).collect::<String>();
+        let stderr_data = (0..64).map(|i| format!("stderr-{i}\n")).collect::<String>();
+        let (stdout_result, stderr_result) = tokio::join!(
+            stdout_writer.write_all(stdout_data.as_bytes()),
+            stderr_writer.write_all(stderr_data.as_bytes())
+        );
+        stdout_result.unwrap();
+        stderr_result.unwrap();
+        drop(stdout_writer);
+        drop(stderr_writer);
+
+        stdout_copier.await.unwrap().unwrap();
+        stderr_copier.await.unwrap().unwrap();
+
+        let content = tokio::fs::read_to_string(log_path).await.unwrap();
+        for line in stdout_data.lines().chain(stderr_data.lines()) {
+            assert!(content.contains(&format!("{line}\n")));
+        }
+        assert_eq!(content.lines().count(), 128);
+    }
+
+    #[tokio::test]
+    async fn test_shared_sink_flushes_before_reader_eof() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("flush.log");
+        let sink = LogSink::new(log_path.clone());
+        let (reader, mut writer) = tokio::io::duplex(64);
+        let (tx, _rx) = broadcast::channel(8);
+        let copier = tokio::spawn(run_log_copier_with_sink(
+            "test".to_string(),
+            LogStream::Stdout,
+            reader,
+            sink,
+            None,
+            tx,
+        ));
+
+        writer.write_all(b"visible before eof\n").await.unwrap();
+        let content = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Ok(content) = tokio::fs::read_to_string(&log_path).await {
+                    if content == "visible before eof\n" {
+                        break content;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(content, "visible before eof\n");
+
+        drop(writer);
+        copier.await.unwrap().unwrap();
     }
 
     #[tokio::test]

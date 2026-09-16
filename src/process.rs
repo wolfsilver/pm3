@@ -381,55 +381,55 @@ pub async fn spawn_process(
     let (monitor_tx, _monitor_rx) = watch::channel(false);
 
     let log_date_format = config.log_date_format.clone();
+    let stdout_log_path = paths.get_stdout_log(
+        &name,
+        config.log_out_file.as_deref(),
+        config.cwd.as_deref(),
+        config.config_dir.as_deref(),
+    );
+    let stderr_log_path = paths.get_stderr_log(
+        &name,
+        config.log_error_file.as_deref(),
+        config.cwd.as_deref(),
+        config.config_dir.as_deref(),
+    );
+    let stdout_sink = log::LogSink::new(stdout_log_path.clone());
+    let stderr_sink = if stdout_log_path == stderr_log_path {
+        stdout_sink.clone()
+    } else {
+        log::LogSink::new(stderr_log_path)
+    };
 
     // Spawn stdout log copier
     #[cfg(unix)]
     if let Some(reader) = pty_reader {
-        let stdout_log_path = paths.get_stdout_log(
-            &name,
-            config.log_out_file.as_deref(),
-            config.cwd.as_deref(),
-            config.config_dir.as_deref(),
-        );
-        log::spawn_log_copier(
+        log::spawn_log_copier_with_sink(
             name.clone(),
             LogStream::Stdout,
             reader,
-            stdout_log_path,
+            stdout_sink.clone(),
             log_date_format.clone(),
             log_tx.clone(),
         );
     }
     #[cfg(not(unix))]
     if let Some(stdout) = child.stdout.take() {
-        let stdout_log_path = paths.get_stdout_log(
-            &name,
-            config.log_out_file.as_deref(),
-            config.cwd.as_deref(),
-            config.config_dir.as_deref(),
-        );
-        log::spawn_log_copier(
+        log::spawn_log_copier_with_sink(
             name.clone(),
             LogStream::Stdout,
             stdout,
-            stdout_log_path,
+            stdout_sink,
             log_date_format.clone(),
             log_tx.clone(),
         );
     }
 
     if let Some(stderr) = child.stderr.take() {
-        let stderr_log_path = paths.get_stderr_log(
-            &name,
-            config.log_error_file.as_deref(),
-            config.cwd.as_deref(),
-            config.config_dir.as_deref(),
-        );
-        log::spawn_log_copier(
+        log::spawn_log_copier_with_sink(
             name.clone(),
             LogStream::Stderr,
             stderr,
-            stderr_log_path,
+            stderr_sink,
             log_date_format,
             log_tx.clone(),
         );
