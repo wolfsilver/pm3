@@ -448,6 +448,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_log_sink_rotates_at_threshold() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("sink.log");
+        let sink = LogSink::new(log_path.clone());
+        let chunk = vec![b'A'; 1024 * 1024];
+
+        for _ in 0..(LOG_ROTATION_SIZE as usize / chunk.len()) {
+            sink.write(&chunk).await.unwrap();
+        }
+        assert_eq!(
+            std::fs::metadata(&log_path).unwrap().len(),
+            LOG_ROTATION_SIZE
+        );
+
+        sink.write(b"B").await.unwrap();
+
+        assert_eq!(
+            std::fs::metadata(rotated_path(&log_path, 1)).unwrap().len(),
+            LOG_ROTATION_SIZE
+        );
+        assert_eq!(tokio::fs::read(&log_path).await.unwrap(), b"B");
+    }
+
+    #[tokio::test]
     async fn test_rotate_log_creates_dot1() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("app.log");
