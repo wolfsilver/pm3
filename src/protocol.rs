@@ -235,8 +235,11 @@ mod tests {
                 post_stop: None,
                 cron_restart: None,
                 log_date_format: None,
+                log_out_file: None,
+                log_error_file: None,
                 instances: None,
                 environments: HashMap::new(),
+                config_dir: None,
             },
         );
         let req = Request::Start {

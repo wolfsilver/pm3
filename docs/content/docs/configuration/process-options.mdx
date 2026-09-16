@@ -236,6 +236,47 @@ command = "node server.js"
 log_date_format = "%Y-%m-%d %H:%M:%S"
 ```
 
+## `log_out_file`
+
+**Type:** `string`
+
+Custom path for standard output (stdout) logs. Supports relative and absolute paths.
+
+Relative paths are resolved against the process's `cwd` (if set) or the directory containing `pm3.toml`.
+
+```toml
+[api]
+command = "python app.py"
+log_out_file = "./logs/api.log"
+```
+
+If not specified, logs are written to `~/.local/share/pm3/logs/<name>-out.log`.
+
+## `log_error_file`
+
+**Type:** `string`
+
+Custom path for standard error (stderr) logs. Supports relative and absolute paths.
+
+Relative paths are resolved against the process's `cwd` (if set) or the directory containing `pm3.toml`.
+
+```toml
+[api]
+command = "python app.py"
+log_error_file = "./logs/api-errors.log"
+```
+
+You can direct both stdout and stderr to the same file:
+
+```toml
+[worker]
+command = "python worker.py"
+log_out_file = "./logs/worker.log"
+log_error_file = "./logs/worker.log"
+```
+
+If not specified, logs are written to `~/.local/share/pm3/logs/<name>-err.log`.
+
 ## Full Example
 
 ```toml title="pm3.toml"
@@ -256,6 +297,8 @@ instances = 2
 pre_start = "npm run build"
 post_stop = "echo 'web stopped'"
 log_date_format = "%Y-%m-%d %H:%M:%S"
+log_out_file = "./logs/web.log"
+log_error_file = "./logs/web-errors.log"
 health_check = "http://localhost:3000/health"
 watch = "./src"
 watch_ignore = ["node_modules", ".git"]

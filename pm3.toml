@@ -3,6 +3,8 @@ command = "bun -e \"Bun.serve({ port: 8080, fetch() { return new Response('API')
 
 [worker]
 command = "bash -c 'i=0; while true; do i=$((i+1)); echo \"[worker] task #$i completed\"; sleep 2; done'"
+log_out_file = "./logs/worker.log"
+log_error_file = "./logs/worker_error.log"
 
 [ticker]
 command = "bash -c 'while true; do echo \"$(date +%T) tick\"; echo \"$(date +%T) warning: something looks off\" >&2; sleep 3; done'"
